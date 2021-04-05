@@ -78,12 +78,38 @@ func (app *KVStoreApplication) CheckTx(req abcitypes.RequestCheckTx) abcitypes.R
 	return abcitypes.ResponseCheckTx{Code: code, GasWanted: 1}
 }
 
-func (KVStoreApplication) Commit() abcitypes.ResponseCommit {
-	return abcitypes.ResponseCommit{}
+func (app *KVStoreApplication) Commit() abcitypes.ResponseCommit {
+	app.currentBatch.Commit()
+	return abcitypes.ResponseCommit{Data: []byte{}}
 }
 
-func (KVStoreApplication) Query(req abcitypes.RequestQuery) abcitypes.ResponseQuery {
-	return abcitypes.ResponseQuery{Code: 0}
+func (app *KVStoreApplication) Query(reqQuery abcitypes.RequestQuery) (resQuery abcitypes.ResponseQuery) {
+	resQuery.Key = reqQuery.Data
+
+	err := app.db.View(func(txn *badger.Txn) error {
+		item, err := txn.Get(reqQuery.Data)
+		if err != nil && err != badger.ErrKeyNotFound {
+			return err
+		}
+
+		if err == badger.ErrKeyNotFound {
+			resQuery.Log = "does not exist"
+		} else {
+			return item.Value(func(val []byte) error {
+				resQuery.Log = "exists"
+				resQuery.Value = val
+				return nil
+			})
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		panic(err)
+	}
+
+	return
 }
 
 func (KVStoreApplication) InitChain(req abcitypes.RequestInitChain) abcitypes.ResponseInitChain {
